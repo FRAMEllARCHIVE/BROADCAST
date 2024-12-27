@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Transfer via Sound</title>
+    <title>DATAWAVE</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -22,7 +22,7 @@
 </head>
 <body>
 
-    <h1>File Transfer via Sound</h1>
+    <h1>File Transfer via Soundwaves</h1>
 
     <button id="broadcastButton">Broadcast File</button>
     <button id="listenButton">Listen for File</button>
@@ -47,12 +47,16 @@
         }
 
         function encodeDataToSound(binaryData) {
-            const bufferLength = 1024;
+            const toneDuration = 0.1;
             const frequency0 = 1000;
             const frequency1 = 2000;
+            const sampleRate = audioContext.sampleRate;
 
-            const audioBuffer = audioContext.createBuffer(1, bufferLength, audioContext.sampleRate);
+            const audioBuffer = audioContext.createBuffer(1, sampleRate * toneDuration, sampleRate);
             const channelData = audioBuffer.getChannelData(0);
+
+            const bufferLength = audioBuffer.length;
+            const toneLength = bufferLength / 8;
 
             let index = 0;
             binaryData.forEach(byte => {
@@ -60,8 +64,8 @@
                     const bit = (byte >> (7 - i)) & 1;
                     const frequency = bit === 0 ? frequency0 : frequency1;
 
-                    for (let t = 0; t < bufferLength / 8; t++) {
-                        channelData[index++] = Math.sin(2 * Math.PI * frequency * t / audioContext.sampleRate);
+                    for (let t = 0; t < toneLength; t++) {
+                        channelData[index++] = Math.sin(2 * Math.PI * frequency * t / sampleRate);
                     }
                 }
             });
