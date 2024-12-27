@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Transfer via Sound</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+        }
+        input[type="file"] {
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>File Transfer via Sound</h1>
+
+    <button id="broadcastButton">Broadcast File</button>
+    <button id="listenButton">Listen for File</button>
+    <input type="file" id="fileInput" />
+
+    <script>
+        const broadcastButton = document.getElementById('broadcastButton');
+        const listenButton = document.getElementById('listenButton');
+        const fileInput = document.getElementById('fileInput');
+        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        function fileToBinary(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const binaryData = new Uint8Array(reader.result);
+                    resolve(binaryData);
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function encodeDataToSound(binaryData) {
+            const bufferLength = 1024;
+            const frequency0 = 1000;
+            const frequency1 = 2000;
+
+            const audioBuffer = audioContext.createBuffer(1, bufferLength, audioContext.sampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+
+            let index = 0;
+            binaryData.forEach(byte => {
+                for (let i = 0; i < 8; i++) {
+                    const bit = (byte >> (7 - i)) & 1;
+                    const frequency = bit === 0 ? frequency0 : frequency1;
+
+                    for (let t = 0; t < bufferLength / 8; t++) {
+                        channelData[index++] = Math.sin(2 * Math.PI * frequency * t / audioContext.sampleRate);
+                    }
+                }
+            });
+
+            return audioBuffer;
+        }
+
+        function broadcastFile(binaryData) {
+            const soundBuffer = encodeDataToSound(binaryData);
+            const source = audioContext.createBufferSource();
+            source.buffer = soundBuffer;
+            source.connect(audioContext.destination);
+            source.start();
+        }
+
+        function decodeSoundToBinary(audioBuffer) {
+            const bufferLength = audioBuffer.length;
+            const data = new Uint8Array(Math.floor(bufferLength / (audioContext.sampleRate / 8)));
+
+            let byteIndex = 0;
+            let bitIndex = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                const value = audioBuffer.getChannelData(0)[i];
+                const bit = value > 0 ? 1 : 0;
+
+                if (bitIndex < 8) {
+                    data[byteIndex] |= (bit << (7 - bitIndex));
+                    bitIndex++;
+                } else {
+                    byteIndex++;
+                    bitIndex = 0;
+                    data[byteIndex] |= (bit << (7 - bitIndex));
+                    bitIndex++;
+                }
+            }
+            return data;
+        }
+
+        async function listenForFile() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const audioInput = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            audioInput.connect(analyser);
+
+            const bufferLength = analyser.frequencyBinCount;
+            const frequencyData = new Uint8Array(bufferLength);
+            const binaryData = [];
+
+            analyser.getByteFrequencyData(frequencyData);
+
+            analyser.fftSize = 256;
+            let currentByte = 0;
+            let currentBit = 0;
+
+            analyser.onaudioprocess = () => {
+                analyser.getByteFrequencyData(frequencyData);
+
+                let bit = frequencyData[0] < 128 ? 0 : 1;
+                if (currentBit < 8) {
+                    currentByte |= (bit << (7 - currentBit));
+                    currentBit++;
+                } else {
+                    binaryData.push(currentByte);
+                    currentByte = bit;
+                    currentBit = 1;
+                }
+
+                if (binaryData.length > 0) {
+                    const decodedFile = new Blob([new Uint8Array(binaryData)]);
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(decodedFile);
+                    link.download = 'received-file';
+                    link.click();
+                    console.log("File received!");
+                }
+            };
+        }
+
+        broadcastButton.addEventListener('click', async () => {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                const binaryData = await fileToBinary(file);
+                broadcastFile(binaryData);
+            } else {
+                alert('Please select a file to broadcast');
+            }
+        });
+
+        listenButton.addEventListener('click', () => {
+            listenForFile();
+        });
+
+    </script>
+</body>
+</html>
