@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DATAWAVE</title>
+    <title>DATAWAVE - File Transfer via Soundwaves</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -63,24 +63,23 @@
         const fileInput = document.getElementById('fileInput');
         const statusMessage = document.getElementById('statusMessage');
 
-        // Ensure proper AudioContext creation for cross-browser compatibility
         let audioContext;
 
         if (window.AudioContext) {
             audioContext = new AudioContext();
         } else if (window.webkitAudioContext) {
-            audioContext = new webkitAudioContext(); // For Safari compatibility
+            audioContext = new webkitAudioContext();
         } else {
             updateStatus("Your browser does not support the Web Audio API.", "error");
             return;
         }
 
-        // Constants for frequency and tone duration
-        const frequency0 = 1000; // Frequency for bit 0
-        const frequency1 = 2000; // Frequency for bit 1
-        const toneDuration = 0.2; // Duration of each tone in seconds
+        const frequency0 = 1000;
+        const frequency1 = 2000;
+        const frequency2 = 1500;
+        const toneDuration = 0.2;
+        const prePostToneDuration = 0.3;
 
-        // Update status message function with different types of messages
         function updateStatus(message, type = "info") {
             statusMessage.textContent = message;
             if (type === "success") statusMessage.className = "status success";
@@ -89,7 +88,6 @@
             else statusMessage.className = "status";
         }
 
-        // Convert file to binary format
         async function fileToBinary(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -102,7 +100,41 @@
             });
         }
 
-        // Encode binary data into sound waves
+        function generateTone(frequency, duration) {
+            const sampleRate = audioContext.sampleRate;
+            const audioBuffer = audioContext.createBuffer(1, sampleRate * duration, sampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+
+            for (let i = 0; i < channelData.length; i++) {
+                channelData[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate);
+            }
+
+            return audioBuffer;
+        }
+
+        function playPrePostTransferTones(callback) {
+            const tone1 = generateTone(frequency0, prePostToneDuration);
+            const tone2 = generateTone(frequency1, prePostToneDuration);
+            const tone3 = generateTone(frequency2, prePostToneDuration);
+
+            const source1 = audioContext.createBufferSource();
+            source1.buffer = tone1;
+            const source2 = audioContext.createBufferSource();
+            source2.buffer = tone2;
+            const source3 = audioContext.createBufferSource();
+            source3.buffer = tone3;
+
+            source1.connect(audioContext.destination);
+            source2.connect(audioContext.destination);
+            source3.connect(audioContext.destination);
+
+            source1.start();
+            source2.start(source1.buffer.duration);
+            source3.start(source2.buffer.duration);
+
+            source3.onended = callback;
+        }
+
         function encodeDataToSound(binaryData) {
             const sampleRate = audioContext.sampleRate;
             const audioBuffer = audioContext.createBuffer(1, sampleRate * toneDuration * binaryData.length * 8, sampleRate);
@@ -123,22 +155,24 @@
             return audioBuffer;
         }
 
-        // Broadcast file using sound waves
         function broadcastFile(binaryData) {
-            const soundBuffer = encodeDataToSound(binaryData);
-            const source = audioContext.createBufferSource();
-            source.buffer = soundBuffer;
-            source.connect(audioContext.destination);
-            source.start();
+            playPrePostTransferTones(() => {
+                const soundBuffer = encodeDataToSound(binaryData);
+                const source = audioContext.createBufferSource();
+                source.buffer = soundBuffer;
+                source.connect(audioContext.destination);
+                source.start();
 
-            updateStatus("Broadcasting file via soundwaves...", "success");
+                updateStatus("Broadcasting file via soundwaves...", "success");
 
-            source.onended = () => {
-                updateStatus("File broadcast completed!", "success");
-            };
+                source.onended = () => {
+                    playPrePostTransferTones(() => {
+                        updateStatus("File broadcast completed!", "success");
+                    });
+                };
+            });
         }
 
-        // Listen for the file via microphone input
         async function listenForFile() {
             updateStatus("Listening for soundwaves...", "warning");
 
@@ -184,7 +218,6 @@
                         currentByte = 0;
                         currentBit = 0;
 
-                        // Example: Stop listening after receiving 100 bytes
                         if (binaryData.length === 100) {
                             clearInterval(interval);
                             const decodedFile = new Blob([new Uint8Array(binaryData)]);
@@ -202,22 +235,16 @@
             }
         }
 
-        // Broadcast button event listener
         broadcastButton.addEventListener('click', async () => {
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
-                try {
-                    const binaryData = await fileToBinary(file);
-                    broadcastFile(binaryData);
-                } catch (error) {
-                    updateStatus(`Error: ${error}`, "error");
-                }
+                const binaryData = await fileToBinary(file);
+                broadcastFile(binaryData);
             } else {
-                updateStatus("Please select a file to broadcast.", "error");
+                updateStatus("Please select a file to broadcast", "warning");
             }
         });
 
-        // Listen button event listener
         listenButton.addEventListener('click', () => {
             listenForFile();
         });
