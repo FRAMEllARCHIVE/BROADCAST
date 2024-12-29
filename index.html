@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DATAWAVE</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        h1 {
+            color: #555;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        input[type="file"] {
+            margin: 10px;
+            padding: 5px;
+        }
+        .status {
+            margin: 20px 0;
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Transfer via Soundwaves</h1>
+
+    <input type="file" id="fileInput" />
+    <br>
+    <button id="broadcastButton">Broadcast File</button>
+    <button id="listenButton">Listen for File</button>
+    <div class="status" id="statusMessage">Ready</div>
+
+    <script>
+        const broadcastButton = document.getElementById('broadcastButton');
+        const listenButton = document.getElementById('listenButton');
+        const fileInput = document.getElementById('fileInput');
+        const statusMessage = document.getElementById('statusMessage');
+        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        function updateStatus(message, color = "#007bff") {
+            statusMessage.textContent = message;
+            statusMessage.style.color = color;
+        }
+
+        async function fileToBinary(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const binaryData = new Uint8Array(reader.result);
+                    resolve(binaryData);
+                };
+                reader.onerror = () => {
+                    reject("Failed to read the file.");
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function encodeDataToSound(binaryData) {
+            const toneDuration = 0.2; // Adjust duration for clearer transmission
+            const frequency0 = 1000; // Frequency for bit 0
+            const frequency1 = 2000; // Frequency for bit 1
+            const sampleRate = audioContext.sampleRate;
+
+            const audioBuffer = audioContext.createBuffer(1, sampleRate * toneDuration * binaryData.length * 8, sampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+
+            let index = 0;
+            binaryData.forEach(byte => {
+                for (let i = 0; i < 8; i++) {
+                    const bit = (byte >> (7 - i)) & 1;
+                    const frequency = bit === 0 ? frequency0 : frequency1;
+                    for (let t = 0; t < sampleRate * toneDuration; t++) {
+                        channelData[index++] = Math.sin(2 * Math.PI * frequency * t / sampleRate);
+                    }
+                }
+            });
+
+            return audioBuffer;
+        }
+
+        function broadcastFile(binaryData) {
+            const soundBuffer = encodeDataToSound(binaryData);
+            const source = audioContext.createBufferSource();
+            source.buffer = soundBuffer;
+            source.connect(audioContext.destination);
+            source.start();
+
+            updateStatus("Broadcasting file via soundwaves...", "#28a745");
+
+            source.onended = () => {
+                updateStatus("File broadcast completed!", "#007bff");
+            };
+        }
+
+        async function listenForFile() {
+            updateStatus("Listening for soundwaves...", "#ffc107");
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioInput = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                audioInput.connect(analyser);
+
+                analyser.fftSize = 2048;
+                const frequencyData = new Uint8Array(analyser.frequencyBinCount);
+
+                const binaryData = [];
+                let currentByte = 0;
+                let currentBit = 0;
+
+                const interval = setInterval(() => {
+                    analyser.getByteFrequencyData(frequencyData);
+
+                    const frequency0Magnitude = frequencyData[10]; // Placeholder for frequency detection logic
+                    const frequency1Magnitude = frequencyData[20]; // Placeholder for frequency detection logic
+
+                    const bit = frequency1Magnitude > frequency0Magnitude ? 1 : 0;
+                    currentByte |= (bit << (7 - currentBit));
+                    currentBit++;
+
+                    if (currentBit === 8) {
+                        binaryData.push(currentByte);
+                        currentByte = 0;
+                        currentBit = 0;
+
+                        if (binaryData.length === 100) { // Example stop condition
+                            clearInterval(interval);
+                            const decodedFile = new Blob([new Uint8Array(binaryData)]);
+                            const link = document.createElement('a');
+                            link.href = URL.createObjectURL(decodedFile);
+                            link.download = 'received-file';
+                            link.click();
+
+                            updateStatus("File received successfully!", "#28a745");
+                        }
+                    }
+                }, 100);
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, "#dc3545");
+            }
+        }
+
+        broadcastButton.addEventListener('click', async () => {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                try {
+                    const binaryData = await fileToBinary(file);
+                    broadcastFile(binaryData);
+                } catch (error) {
+                    updateStatus(`Error: ${error}`, "#dc3545");
+                }
+            } else {
+                updateStatus("Please select a file to broadcast.", "#dc3545");
+            }
+        });
+
+        listenButton.addEventListener('click', () => {
+            listenForFile();
+        });
+    </script>
+</body>
+</html>
