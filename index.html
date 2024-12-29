@@ -37,6 +37,15 @@
             font-weight: bold;
             color: #007bff;
         }
+        .error {
+            color: #dc3545;
+        }
+        .success {
+            color: #28a745;
+        }
+        .warning {
+            color: #ffc107;
+        }
     </style>
 </head>
 <body>
@@ -53,11 +62,19 @@
         const listenButton = document.getElementById('listenButton');
         const fileInput = document.getElementById('fileInput');
         const statusMessage = document.getElementById('statusMessage');
+
         let audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-        function updateStatus(message, color = "#007bff") {
+        const frequency0 = 1000; // Frequency for bit 0
+        const frequency1 = 2000; // Frequency for bit 1
+        const toneDuration = 0.2; // Duration of each tone in seconds
+
+        function updateStatus(message, type = "info") {
             statusMessage.textContent = message;
-            statusMessage.style.color = color;
+            if (type === "success") statusMessage.className = "status success";
+            else if (type === "error") statusMessage.className = "status error";
+            else if (type === "warning") statusMessage.className = "status warning";
+            else statusMessage.className = "status";
         }
 
         async function fileToBinary(file) {
@@ -67,19 +84,13 @@
                     const binaryData = new Uint8Array(reader.result);
                     resolve(binaryData);
                 };
-                reader.onerror = () => {
-                    reject("Failed to read the file.");
-                };
+                reader.onerror = () => reject("Failed to read the file.");
                 reader.readAsArrayBuffer(file);
             });
         }
 
         function encodeDataToSound(binaryData) {
-            const toneDuration = 0.2; // Adjust duration for clearer transmission
-            const frequency0 = 1000; // Frequency for bit 0
-            const frequency1 = 2000; // Frequency for bit 1
             const sampleRate = audioContext.sampleRate;
-
             const audioBuffer = audioContext.createBuffer(1, sampleRate * toneDuration * binaryData.length * 8, sampleRate);
             const channelData = audioBuffer.getChannelData(0);
 
@@ -88,6 +99,7 @@
                 for (let i = 0; i < 8; i++) {
                     const bit = (byte >> (7 - i)) & 1;
                     const frequency = bit === 0 ? frequency0 : frequency1;
+
                     for (let t = 0; t < sampleRate * toneDuration; t++) {
                         channelData[index++] = Math.sin(2 * Math.PI * frequency * t / sampleRate);
                     }
@@ -104,15 +116,15 @@
             source.connect(audioContext.destination);
             source.start();
 
-            updateStatus("Broadcasting file via soundwaves...", "#28a745");
+            updateStatus("Broadcasting file via soundwaves...", "success");
 
             source.onended = () => {
-                updateStatus("File broadcast completed!", "#007bff");
+                updateStatus("File broadcast completed!", "success");
             };
         }
 
         async function listenForFile() {
-            updateStatus("Listening for soundwaves...", "#ffc107");
+            updateStatus("Listening for soundwaves...", "warning");
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -123,6 +135,11 @@
                 analyser.fftSize = 2048;
                 const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
+                const sampleRate = audioContext.sampleRate;
+                const binFrequency = sampleRate / analyser.fftSize;
+                const binIndex0 = Math.round(frequency0 / binFrequency);
+                const binIndex1 = Math.round(frequency1 / binFrequency);
+
                 const binaryData = [];
                 let currentByte = 0;
                 let currentBit = 0;
@@ -130,8 +147,8 @@
                 const interval = setInterval(() => {
                     analyser.getByteFrequencyData(frequencyData);
 
-                    const frequency0Magnitude = frequencyData[10]; // Placeholder for frequency detection logic
-                    const frequency1Magnitude = frequencyData[20]; // Placeholder for frequency detection logic
+                    const frequency0Magnitude = frequencyData[binIndex0];
+                    const frequency1Magnitude = frequencyData[binIndex1];
 
                     const bit = frequency1Magnitude > frequency0Magnitude ? 1 : 0;
                     currentByte |= (bit << (7 - currentBit));
@@ -142,7 +159,8 @@
                         currentByte = 0;
                         currentBit = 0;
 
-                        if (binaryData.length === 100) { // Example stop condition
+                        // Example: Stop listening after receiving 100 bytes
+                        if (binaryData.length === 100) {
                             clearInterval(interval);
                             const decodedFile = new Blob([new Uint8Array(binaryData)]);
                             const link = document.createElement('a');
@@ -150,12 +168,12 @@
                             link.download = 'received-file';
                             link.click();
 
-                            updateStatus("File received successfully!", "#28a745");
+                            updateStatus("File received successfully!", "success");
                         }
                     }
                 }, 100);
             } catch (error) {
-                updateStatus(`Error: ${error.message}`, "#dc3545");
+                updateStatus(`Error: ${error.message}`, "error");
             }
         }
 
@@ -166,10 +184,10 @@
                     const binaryData = await fileToBinary(file);
                     broadcastFile(binaryData);
                 } catch (error) {
-                    updateStatus(`Error: ${error}`, "#dc3545");
+                    updateStatus(`Error: ${error}`, "error");
                 }
             } else {
-                updateStatus("Please select a file to broadcast.", "#dc3545");
+                updateStatus("Please select a file to broadcast.", "error");
             }
         });
 
