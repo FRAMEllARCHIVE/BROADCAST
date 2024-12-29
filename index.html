@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DATAWAVE - Ultrasound File Transfer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            cursor: pointer;
+        }
+        input[type="file"] {
+            margin: 10px;
+        }
+        #status {
+            margin-top: 20px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Transfer via Ultrasound</h1>
+
+    <input type="file" id="fileInput" />
+    <button id="broadcastButton">Broadcast File</button>
+    <button id="listenButton">Listen for File</button>
+    <p id="status"></p>
+
+    <script>
+        const broadcastButton = document.getElementById('broadcastButton');
+        const listenButton = document.getElementById('listenButton');
+        const fileInput = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        const frequency0 = 22000; // Ultrasound frequency for binary 0
+        const frequency1 = 24000; // Ultrasound frequency for binary 1
+        const toneDuration = 0.1; // Duration of each tone in seconds
+
+        // Convert a file to binary data
+        async function fileToBinary(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(new Uint8Array(reader.result));
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // Encode binary data into sound waves
+        function encodeDataToSound(binaryData) {
+            const sampleRate = audioContext.sampleRate;
+            const audioBuffer = audioContext.createBuffer(1, sampleRate * toneDuration * binaryData.length * 8, sampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+
+            let index = 0;
+            binaryData.forEach(byte => {
+                for (let i = 0; i < 8; i++) {
+                    const bit = (byte >> (7 - i)) & 1;
+                    const frequency = bit === 0 ? frequency0 : frequency1;
+
+                    for (let t = 0; t < sampleRate * toneDuration; t++) {
+                        channelData[index++] = Math.sin(2 * Math.PI * frequency * t / sampleRate);
+                    }
+                }
+            });
+
+            return audioBuffer;
+        }
+
+        // Broadcast the binary data via ultrasound
+        function broadcastFile(binaryData) {
+            const soundBuffer = encodeDataToSound(binaryData);
+            const source = audioContext.createBufferSource();
+            source.buffer = soundBuffer;
+            source.connect(audioContext.destination);
+            source.start();
+            status.textContent = "Broadcasting file via ultrasound...";
+        }
+
+        // Listen for incoming file and decode binary data
+        async function listenForFile() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioInput = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                audioInput.connect(analyser);
+
+                const frequencyData = new Float32Array(analyser.frequencyBinCount);
+                const detectedBits = [];
+                status.textContent = "Listening for file...";
+
+                let binaryData = [];
+
+                // Analyze audio in real-time
+                function analyzeAudio() {
+                    analyser.getFloatFrequencyData(frequencyData);
+
+                    const sampleRate = audioContext.sampleRate;
+                    const freqIndex0 = Math.round(frequency0 / (sampleRate / analyser.fftSize));
+                    const freqIndex1 = Math.round(frequency1 / (sampleRate / analyser.fftSize));
+
+                    const amplitude0 = frequencyData[freqIndex0];
+                    const amplitude1 = frequencyData[freqIndex1];
+
+                    if (amplitude0 > -70 || amplitude1 > -70) {
+                        const detectedBit = amplitude1 > amplitude0 ? 1 : 0;
+                        detectedBits.push(detectedBit);
+
+                        if (detectedBits.length % 8 === 0) {
+                            const byte = detectedBits.slice(-8).reduce((acc, bit, i) => acc | (bit << (7 - i)), 0);
+                            binaryData.push(byte);
+                        }
+                    }
+                }
+
+                const interval = setInterval(analyzeAudio, toneDuration * 1000);
+
+                setTimeout(() => {
+                    clearInterval(interval);
+
+                    if (binaryData.length > 0) {
+                        const blob = new Blob([new Uint8Array(binaryData)]);
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = 'received-file';
+                        link.click();
+                        status.textContent = "File received successfully!";
+                    } else {
+                        status.textContent = "No file detected. Try again.";
+                    }
+                }, 10000); // Listen for 10 seconds
+            } catch (error) {
+                status.textContent = "Error: Unable to access microphone.";
+                console.error(error);
+            }
+        }
+
+        // Event listeners
+        broadcastButton.addEventListener('click', async () => {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                const binaryData = await fileToBinary(file);
+                broadcastFile(binaryData);
+            } else {
+                status.textContent = "Please select a file to broadcast.";
+            }
+        });
+
+        listenButton.addEventListener('click', listenForFile);
+    </script>
+</body>
+</html>
